@@ -1,0 +1,199 @@
+openapi: 3.1.0
+info:
+  title: Plata Currency Quotes API
+  version: 1.0.0
+  description: Asynchronous currency quote update service.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/quote-updates:
+    post:
+      summary: Request an asynchronous quote update
+      operationId: requestQuoteUpdate
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: A unique client-generated key that makes retries of the same request idempotent.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[!-~]{1,128}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestQuoteUpdate'
+      responses:
+        '202':
+          description: Update accepted or an idempotent request replayed.
+          headers:
+            Location:
+              schema:
+                type: string
+            Idempotency-Replayed:
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteUpdate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+  /v1/quote-updates/{update_id}:
+    get:
+      summary: Get a quote update by identifier
+      operationId: getQuoteUpdate
+      parameters:
+        - name: update_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Current update state. Price is present after success.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteUpdate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/quotes/latest:
+    get:
+      summary: Get the latest successful quote for a pair
+      operationId: getLatestQuote
+      parameters:
+        - name: pair
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/CurrencyPair'
+      responses:
+        '200':
+          description: Latest quote.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ping:
+    get:
+      summary: Ping the service
+      operationId: ping
+      responses:
+        '200':
+          description: Service responded to the ping.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+                    const: pong
+  /healthcheck:
+    head:
+      summary: Check that the service is running
+      operationId: healthcheck
+      responses:
+        '204':
+          description: Service is running.
+components:
+  schemas:
+    CurrencyPair:
+      type: string
+      enum: [USD/EUR, USD/MXN, EUR/USD, EUR/MXN, MXN/USD, MXN/EUR]
+      example: EUR/MXN
+    RequestQuoteUpdate:
+      type: object
+      required: [pair]
+      properties:
+        pair:
+          $ref: '#/components/schemas/CurrencyPair'
+    QuoteUpdate:
+      type: object
+      required: [update_id, pair, status, created_at, updated_at]
+      properties:
+        update_id:
+          type: string
+          format: uuid
+        pair:
+          $ref: '#/components/schemas/CurrencyPair'
+        status:
+          type: string
+          enum: [queued, processing, succeeded, failed]
+        price:
+          type: number
+          exclusiveMinimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          description: Last time this quote update changed state in the service.
+        error:
+          type: string
+          description: A safe generic error description for a permanently failed update.
+    Quote:
+      type: object
+      required: [pair, price, updated_at, update_id]
+      properties:
+        pair:
+          $ref: '#/components/schemas/CurrencyPair'
+        price:
+          type: number
+          exclusiveMinimum: 0
+        updated_at:
+          type: string
+          format: date-time
+          description: Time when the service stored the latest successful quote update.
+        update_id:
+          type: string
+          format: uuid
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Idempotency key was already used for another payload.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Update or successful quote was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: Request body is too large.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

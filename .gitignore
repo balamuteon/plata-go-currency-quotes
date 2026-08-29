@@ -1,0 +1,6 @@
+.env
+.cache
+bin/
+coverage.out
+.DS_Store
+TBD.md
